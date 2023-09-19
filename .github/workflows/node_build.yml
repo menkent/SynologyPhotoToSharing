@@ -35,7 +35,7 @@ jobs:
       # You may pin to the exact commit or the version.
       # uses: donmahallem/github-release-action@d13ac900fa1ef25c25a2fe32bcdc6310b62fb638
       uses: donmahallem/github-release-action@v1.0.0
-      # with:
+      with:
         # List of valid labels
-        # github_secret: # default is 
+        github_secret: ${{ secrets.GITHUB_TOKEN }}# default is 
         
