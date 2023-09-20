@@ -22,9 +22,15 @@ export function customDelay(millisec: number) {
     })
 }
 
-export function updateSavedData(data: Record<number, string[]>, album_id: number, files: string[]): Record<number, string[]> {
-    data[album_id] = data[album_id]
-        ? [...data[album_id], ...files]
+export function savedDataIndex(album_id: number, shared_folder: string): string {
+    return `${album_id}_${shared_folder}`;
+}
+
+export function updateSavedData(data: Record<string, string[]>, album_id: number, shared_folder: string, files: string[]): Record<string, string[]> {
+    const index: string = savedDataIndex(album_id, shared_folder);
+
+    data[index] = data[index]
+        ? [...data[index], ...files]
         : files;
 
     return data;

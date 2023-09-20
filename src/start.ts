@@ -5,7 +5,7 @@ import { AlbumItemDownloadService } from "./services/photo/album-item-download.s
 import { AlbumItemsListService } from "./services/photo/album-item-list.service";
 import { ConditionalAlbumListService } from "./services/photo/conditional-album-list.service";
 import { BrowseFolderService } from "./services/photo/browse-folder.service";
-import { customDelay, destPath, logger, sourcePath, updateSavedData } from "./helpers";
+import { customDelay, destPath, logger, savedDataIndex, sourcePath, updateSavedData } from "./helpers";
 import { CopyMoveFSService } from "./services/file-station/copy-move.service";
 import { LogoutService } from "./services/auth/logout.service";
 import { AlbumCopySettings, Settings } from "./types/settings";
@@ -15,8 +15,9 @@ import { FSCreateFolderService } from "./services/file-station/create-folder.ser
 const FILES_COUNT_IN_PACKAGE = 10;
 
 // {album_id: list of files }, who has been copied to shared
-let DATA: Record<number, string[]> = {};
+let DATA: Record<string, string[]> = {};
 let PhotoAdded = 0;
+const MaxAvailablePhotos: number = Number(process.env.MAX_PHOTO_COPIED) || 10;
 
 interface AllServices {
     apiInfoService: ApiInfoService
@@ -47,7 +48,7 @@ const generateServices = (apiInfoService: ApiInfoService): AllServices => ({
 const handleAlbum = async (username: string, id: number, shared_folder: string, passphrase: string, services: AllServices) => {
     const items = await services.albumItemsListService.getItems(passphrase);
     const dest = destPath(shared_folder, username);
-    const itemsSaved: string[] = DATA[id] || [];
+    const itemsSaved: string[] = DATA[savedDataIndex(id, shared_folder)] || [];
     let paths = [];
     let names = [];
     let countOfCopiedPhoto = 0;
@@ -67,11 +68,15 @@ const handleAlbum = async (username: string, id: number, shared_folder: string, 
         paths.push(fullSourcePath);
         names.push(item.filename);
 
+        if (MaxAvailablePhotos && MaxAvailablePhotos <= PhotoAdded) {
+            break;
+        }
+
         if (paths.length >= FILES_COUNT_IN_PACKAGE || index >= (items.length - 1)) {
             const copyObj = await services.copyMoveFSService.send(JSON.stringify(paths), dest);
 
             await services.copyMoveStatusFSService.send(copyObj.taskid);
-            updateSavedData(DATA, id, names);
+            updateSavedData(DATA, id, shared_folder, names);
             countOfCopiedPhoto += names.length;
             PhotoAdded += names.length;
             paths = [];
@@ -121,7 +126,7 @@ readFile(settingPath, async (err, data) => {
 
     readFile(dataPath, async (err, data) => {
         if (data) {
-            DATA = JSON.parse(data as any) as Record<number, string[]>;
+            DATA = JSON.parse(data as any) as Record<string, string[]>;
         }
 
         try {
