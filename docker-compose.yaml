@@ -1,0 +1,10 @@
+version: '3.5'
+
+services:
+  main:
+    container_name: photo_to_share
+    image: node:latest
+    working_dir: /home/node/app
+    volumes:
+      - /volume1/homes/<user>/ProgramFiles/Photo-Auto-Sharing/:/home/node/app
+    command: sh start.sh
