@@ -26,9 +26,7 @@ export function savedDataIndex(album_id: number, shared_folder: string): string 
     return `${album_id}_${shared_folder}`;
 }
 
-export function updateSavedData(data: Record<string, string[]>, album_id: number, shared_folder: string, files: string[]): Record<string, string[]> {
-    const index: string = savedDataIndex(album_id, shared_folder);
-
+export function updateSavedData(data: Record<string, string[]>, index: string, files: string[]): Record<string, string[]> {
     data[index] = data[index]
         ? [...data[index], ...files]
         : files;

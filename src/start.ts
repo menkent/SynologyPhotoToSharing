@@ -48,7 +48,8 @@ const generateServices = (apiInfoService: ApiInfoService): AllServices => ({
 const handleAlbum = async (username: string, id: number, shared_folder: string, passphrase: string, services: AllServices) => {
     const items = await services.albumItemsListService.getItems(passphrase);
     const dest = destPath(shared_folder, username);
-    const itemsSaved: string[] = DATA[savedDataIndex(id, shared_folder)] || [];
+    const dataIndex = savedDataIndex(id, shared_folder);
+    const itemsSaved: string[] = DATA[dataIndex] || [];
     let paths = [];
     let names = [];
     let countOfCopiedPhoto = 0;
@@ -68,23 +69,23 @@ const handleAlbum = async (username: string, id: number, shared_folder: string, 
         paths.push(fullSourcePath);
         names.push(item.filename);
 
-        if (MaxAvailablePhotos && MaxAvailablePhotos <= PhotoAdded) {
-            break;
-        }
-
         if (paths.length >= FILES_COUNT_IN_PACKAGE || index >= (items.length - 1)) {
             const copyObj = await services.copyMoveFSService.send(JSON.stringify(paths), dest);
 
             await services.copyMoveStatusFSService.send(copyObj.taskid);
-            updateSavedData(DATA, id, shared_folder, names);
+            DATA = updateSavedData(DATA, dataIndex, names);
             countOfCopiedPhoto += names.length;
             PhotoAdded += names.length;
             paths = [];
             names = [];
         }
+
+        if (MaxAvailablePhotos && MaxAvailablePhotos <= PhotoAdded) {
+            break;
+        }
     }
 
-    logger(`[${username}]: ${countOfCopiedPhoto} was added from album: ${id}`);
+    logger(`[${username}]: ${countOfCopiedPhoto} was added from album: ${id} / ${items.length}`);
 }
 
 const handleAccount = async (login: string, passwd: string, albums: Array<AlbumCopySettings>, apiInfoService: ApiInfoService) => {
@@ -105,7 +106,7 @@ const handleAccount = async (login: string, passwd: string, albums: Array<AlbumC
 }
 
 async function main(settings: Settings) {
-    logger('START MAIN with settings::', settings);
+    logger('START');
     const apiInfoService = new ApiInfoService(settings);
     await apiInfoService.init();
 
@@ -130,6 +131,7 @@ readFile(settingPath, async (err, data) => {
         }
 
         try {
+            PhotoAdded = 0;
             await main(settings);
         } catch (e) {
             logger('ERROR::', e);
