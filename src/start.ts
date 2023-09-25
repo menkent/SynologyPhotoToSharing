@@ -69,7 +69,7 @@ const handleAlbum = async (username: string, id: number, shared_folder: string, 
         paths.push(fullSourcePath);
         names.push(item.filename);
 
-        if (paths.length >= FILES_COUNT_IN_PACKAGE || index >= (items.length - 1)) {
+        if (paths.length >= FILES_COUNT_IN_PACKAGE || index >= (filtratedItems.length - 1)) {
             const copyObj = await services.copyMoveFSService.send(JSON.stringify(paths), dest);
 
             await services.copyMoveStatusFSService.send(copyObj.taskid);
