@@ -26,3 +26,10 @@ export interface AlbumsBrowseItemsRequest {
     type?: FileType;
     passphrase: string;
 }
+
+export interface PersonItemsRequest {
+    offset: number;
+    limit: number;
+    type?: FileType;
+    person_id: string;
+}

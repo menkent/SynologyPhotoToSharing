@@ -13,3 +13,24 @@ export interface FSFolderCreateRequest {
     name: string;
     force_parent: boolean;
 }
+
+export interface FSRenameRequest {
+    path: string;
+    name: string;
+}
+
+export interface FSRenameResponse {
+    files: Array<FSFile>;
+}
+
+export interface FSListRequest {
+    folder_path: string;
+    offset: number;
+    limit: number;
+}
+
+export interface FSListResponse {
+    files: Array<FSFile>;
+    total: number;
+    offset: number;
+}

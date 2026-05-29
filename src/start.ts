@@ -3,19 +3,23 @@ import { ApiInfoService } from "./services/auth/api-info.service";
 import { AuthService } from "./services/auth/auth.service";
 import { AlbumItemDownloadService } from "./services/photo/album-item-download.service";
 import { AlbumItemsListService } from "./services/photo/album-item-list.service";
+import { PersonItemsListService } from "./services/photo/person-item-list.service";
 import { ConditionalAlbumListService } from "./services/photo/conditional-album-list.service";
 import { BrowseFolderService } from "./services/photo/browse-folder.service";
-import { customDelay, destPath, logger, savedDataIndex, sourcePath, updateSavedData } from "./helpers";
+import { customDelay, destPath, logger, savedDataIndex, savedPersonDataIndex, sourcePath, updateSavedData } from "./helpers";
 import { CopyMoveFSService } from "./services/file-station/copy-move.service";
 import { LogoutService } from "./services/auth/logout.service";
-import { AlbumCopySettings, Settings } from "./types/settings";
+import { AlbumCopySettings, PersonCopySettings, Settings } from "./types/settings";
 import { CopyMoveStatusFSService } from "./services/file-station/copy-move-waiting.service";
 import { FSCreateFolderService } from "./services/file-station/create-folder.service";
+import { RenameFSService } from "./services/file-station/rename.service";
+import { ListFSService } from "./services/file-station/list.service";
 
 const FILES_COUNT_IN_PACKAGE = 10;
 
 // {album_id: list of files }, who has been copied to shared
 let DATA: Record<string, string[]> = {};
+let DataChanged = false;
 let PhotoAdded = 0;
 const MaxAvailablePhotos: number = Number(process.env.MAX_PHOTO_COPIED) || 10;
 
@@ -24,12 +28,15 @@ interface AllServices {
     authService: AuthService;
     conditionalAlbumListService: ConditionalAlbumListService;
     albumItemsListService: AlbumItemsListService;
+    personItemsListService: PersonItemsListService;
     itemDownloadService: AlbumItemDownloadService;
     browseFolderService: BrowseFolderService;
     copyMoveFSService: CopyMoveFSService;
     logoutService: LogoutService;
     copyMoveStatusFSService: CopyMoveStatusFSService;
     fsCreateFolderService: FSCreateFolderService;
+    renameFSService: RenameFSService;
+    listFSService: ListFSService;
 }
 
 const generateServices = (apiInfoService: ApiInfoService): AllServices => ({
@@ -37,12 +44,15 @@ const generateServices = (apiInfoService: ApiInfoService): AllServices => ({
     authService: new AuthService(apiInfoService),
     conditionalAlbumListService: new ConditionalAlbumListService(apiInfoService),
     albumItemsListService: new AlbumItemsListService(apiInfoService),
+    personItemsListService: new PersonItemsListService(apiInfoService),
     itemDownloadService: new AlbumItemDownloadService(apiInfoService),
     browseFolderService: new BrowseFolderService(apiInfoService),
     copyMoveFSService: new CopyMoveFSService(apiInfoService),
     logoutService: new LogoutService(apiInfoService),
     copyMoveStatusFSService: new CopyMoveStatusFSService(apiInfoService),
     fsCreateFolderService: new FSCreateFolderService(apiInfoService),
+    renameFSService: new RenameFSService(apiInfoService),
+    listFSService: new ListFSService(apiInfoService),
 });
 
 const handleAlbum = async (username: string, id: number, shared_folder: string, passphrase: string, services: AllServices) => {
@@ -88,18 +98,78 @@ const handleAlbum = async (username: string, id: number, shared_folder: string, 
     logger(`[${username}]: ${countOfCopiedPhoto} was added from album: ${id} / ${items.length}`);
 }
 
-const handleAccount = async (login: string, passwd: string, albums: Array<AlbumCopySettings>, apiInfoService: ApiInfoService) => {
+const handlePerson = async (username: string, personId: number, shared_folder: string, services: AllServices) => {
+    const items = await services.personItemsListService.getItems(personId);
+    const dest = destPath(shared_folder, username);
+    const dataIndex = savedPersonDataIndex(personId, shared_folder);
+    const itemsSaved: string[] = DATA[dataIndex] || [];
+    let countOfCopiedPhoto = 0;
+
+    const createFolderResult = await services.fsCreateFolderService.send(destPath(shared_folder, ''), username);
+
+    if (!createFolderResult?.folders?.[0]?.isdir) {
+        throw 'Folder not created::' + dest;
+    }
+
+    // dedup by item id; copy one-by-one + rename to `<id>_filename` so that
+    // same-named photos from different folders don't collide in the flat dest
+    const filtratedItems = items.filter((item) => !itemsSaved.includes(String(item.id)));
+
+    // list the dest only when there is new work — it is just a reconciliation
+    // safety net for runs that copied but didn't persist data.local.json
+    const existingNames = filtratedItems.length
+        ? await services.listFSService.getNames(dest)
+        : new Set<string>();
+
+    for (const item of filtratedItems) {
+        const targetName = `${item.id}_${item.filename}`;
+
+        // already in dest from a previous (possibly interrupted) run that didn't
+        // persist data.local.json — just record the id, don't copy again
+        if (existingNames.has(targetName)) {
+            DATA = updateSavedData(DATA, dataIndex, [String(item.id)]);
+            DataChanged = true;
+            continue;
+        }
+
+        const folder = await services.browseFolderService.send(item.folder_id);
+        const fullSourcePath = sourcePath({username, folder: folder.name, filename: item.filename});
+
+        const copyObj = await services.copyMoveFSService.send(JSON.stringify([fullSourcePath]), dest);
+        await services.copyMoveStatusFSService.send(copyObj.taskid);
+        await services.renameFSService.send(`${dest}/${item.filename}`, targetName);
+
+        DATA = updateSavedData(DATA, dataIndex, [String(item.id)]);
+        DataChanged = true;
+        countOfCopiedPhoto += 1;
+        PhotoAdded += 1;
+
+        if (MaxAvailablePhotos && MaxAvailablePhotos <= PhotoAdded) {
+            break;
+        }
+    }
+
+    logger(`[${username}]: ${countOfCopiedPhoto} was added from person: ${personId} / ${items.length}`);
+}
+
+const handleAccount = async (login: string, passwd: string, albums: Array<AlbumCopySettings>, persons: Array<PersonCopySettings>, apiInfoService: ApiInfoService) => {
     const services = generateServices(apiInfoService);
 
     await services.authService.send({account: login, passwd});
 
-    const allUserAlbums = (await services.conditionalAlbumListService.send(0, 100))?.list || [];
-    const albumsIds = albums.map(({id}) => id);
-    const albumsIdToSharedFolder = albums.reduce((acc, el) => ({...acc, [el.id]: el.shared_folder}), {}) as Record<number, string>;
-    const filtratedUserAlbums = allUserAlbums.filter(({id}) => albumsIds.includes(id));
+    // if (albums?.length) {
+    //     const allUserAlbums = (await services.conditionalAlbumListService.send(0, 100))?.list || [];
+    //     const albumsIds = albums.map(({id}) => id);
+    //     const albumsIdToSharedFolder = albums.reduce((acc, el) => ({...acc, [el.id]: el.shared_folder}), {}) as Record<number, string>;
+    //     const filtratedUserAlbums = allUserAlbums.filter(({id}) => albumsIds.includes(id));
+    //
+    //     for (const albumElemet of filtratedUserAlbums) {
+    //         await handleAlbum(login, albumElemet.id, albumsIdToSharedFolder[albumElemet.id], albumElemet.passphrase, services);
+    //     }
+    // }
 
-    for (const albumElemet of filtratedUserAlbums) {
-        await handleAlbum(login, albumElemet.id, albumsIdToSharedFolder[albumElemet.id], albumElemet.passphrase, services);
+    for (const person of (persons || [])) {
+        await handlePerson(login, person.person_id, person.shared_folder, services);
     }
 
     await services.logoutService.send();
@@ -111,7 +181,7 @@ async function main(settings: Settings) {
     await apiInfoService.init();
 
     for (const account of settings.accounts) {
-        await handleAccount(account.login, account.password, account.albums, apiInfoService);
+        await handleAccount(account.login, account.password, account.albums || [], account.persons || [], apiInfoService);
         await customDelay(1000);
     }
 }
@@ -132,17 +202,18 @@ readFile(settingPath, async (err, data) => {
 
         try {
             PhotoAdded = 0;
+            DataChanged = false;
             await main(settings);
         } catch (e) {
             logger('ERROR::', e);
         } finally {
-            if (PhotoAdded > 0) {
+            if (DataChanged) {
                 writeFileSync(dataPath, JSON.stringify(DATA));
                 logger(`DATA updated: ${PhotoAdded} was added`);
             } else {
                 logger('DATA not updated');
             }
-            
+
         }
     })
 });

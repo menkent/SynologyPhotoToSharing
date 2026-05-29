@@ -9,7 +9,13 @@
                     "id": 2,  // album id  (get it from url in web browser)
                     "shared_folder": "<folder inside /photo - shared space>"
                 }
+            ],
+            "persons": [
+                {
+                    "person_id": 1,  // person id (get it from url / browser console)
+                    "shared_folder": "<folder inside /photo - shared space>"
+                }
             ]
         },
-    ] 
+    ]
 }
