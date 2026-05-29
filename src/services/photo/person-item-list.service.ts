@@ -16,8 +16,7 @@ export class PersonItemsListService extends BasePhotoService<PersonItemsRequest,
         return this.get({
             offset,
             limit,
-            // Synology expects person_id as an array literal, e.g. [123]
-            person_id: `[${personId}]`,
+            person_id: personId,
         });
     }
 

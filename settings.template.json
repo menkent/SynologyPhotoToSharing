@@ -6,16 +6,16 @@
             "password": "<password>",
             "albums": [
                 {
-                    "id": 2,  // album id  (get it from url in web browser)
+                    "id": 2,
                     "shared_folder": "<folder inside /photo - shared space>"
                 }
             ],
             "persons": [
                 {
-                    "person_id": 1,  // person id (get it from url / browser console)
+                    "person_id": 1,
                     "shared_folder": "<folder inside /photo - shared space>"
                 }
             ]
-        },
+        }
     ]
 }

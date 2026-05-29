@@ -196,7 +196,7 @@ readFile(settingPath, async (err, data) => {
     const settings = JSON.parse(data as any) as Settings;
 
     readFile(dataPath, async (err, data) => {
-        if (data) {
+        if (data?.length) {
             DATA = JSON.parse(data as any) as Record<string, string[]>;
         }
 

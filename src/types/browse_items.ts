@@ -31,5 +31,5 @@ export interface PersonItemsRequest {
     offset: number;
     limit: number;
     type?: FileType;
-    person_id: string;
+    person_id: number;
 }
