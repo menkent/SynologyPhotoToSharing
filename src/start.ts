@@ -75,7 +75,8 @@ const handleAlbum = async (username: string, id: number, shared_folder: string, 
     const createFolderResult = await services.fsCreateFolderService.send(destPath(shared_folder, ''), username);
 
     if (!createFolderResult?.folders?.[0].isdir) {
-        throw 'Folder not created::' + dest;
+        logger(`[${username}]: skip album ${id}, folder not ready (transient API error): ${dest}`);
+        return;
     }
 
     const filtratedItems = items.filter(({filename}) => !itemsSaved.includes(filename));
@@ -118,7 +119,8 @@ const handleItems = async (username: string, items: Array<AlbumItem>, shared_fol
     const createFolderResult = await services.fsCreateFolderService.send(destPath(shared_folder, ''), username);
 
     if (!createFolderResult?.folders?.[0]?.isdir) {
-        throw 'Folder not created::' + dest;
+        logger(`[${username}]: skip ${source}, folder not ready (transient API error): ${dest}`);
+        return;
     }
 
     // dedup by item id; copy one-by-one + rename to `<id>_filename` so that

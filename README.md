@@ -1,4 +1,5 @@
 # SynologyPhotoToSharing
+SynologyPhoto API: https://github.com/zeichensatz/SynologyPhotosAPI
 
 # This App needs for Copying personal contidional albums (it need be shared for passpharase) to common photo folders
 # 1 - Share your albums and save it ids (from url for example)
