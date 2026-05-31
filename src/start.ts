@@ -4,12 +4,14 @@ import { AuthService } from "./services/auth/auth.service";
 import { AlbumItemDownloadService } from "./services/photo/album-item-download.service";
 import { AlbumItemsListService } from "./services/photo/album-item-list.service";
 import { PersonItemsListService } from "./services/photo/person-item-list.service";
+import { LabelItemsListService } from "./services/photo/label-item-list.service";
 import { ConditionalAlbumListService } from "./services/photo/conditional-album-list.service";
 import { BrowseFolderService } from "./services/photo/browse-folder.service";
-import { customDelay, destPath, logger, savedDataIndex, savedPersonDataIndex, sourcePath, updateSavedData } from "./helpers";
+import { customDelay, destPath, logger, savedDataIndex, savedPersonDataIndex, savedLabelDataIndex, sourcePath, updateSavedData } from "./helpers";
 import { CopyMoveFSService } from "./services/file-station/copy-move.service";
 import { LogoutService } from "./services/auth/logout.service";
-import { AlbumCopySettings, PersonCopySettings, Settings } from "./types/settings";
+import { AlbumItem } from "./types";
+import { AlbumCopySettings, LabelCopySettings, PersonCopySettings, Settings } from "./types/settings";
 import { CopyMoveStatusFSService } from "./services/file-station/copy-move-waiting.service";
 import { FSCreateFolderService } from "./services/file-station/create-folder.service";
 import { RenameFSService } from "./services/file-station/rename.service";
@@ -19,6 +21,10 @@ const FILES_COUNT_IN_PACKAGE = 10;
 
 // {album_id: list of files }, who has been copied to shared
 let DATA: Record<string, string[]> = {};
+// per-destination set of already-copied item ids, used to dedup across sources
+// (person + label) within a single run so one photo isn't copied twice into the
+// same shared folder
+let COPIED_BY_DEST: Record<string, Set<string>> = {};
 let DataChanged = false;
 let PhotoAdded = 0;
 const MaxAvailablePhotos: number = Number(process.env.MAX_PHOTO_COPIED) || 10;
@@ -29,6 +35,7 @@ interface AllServices {
     conditionalAlbumListService: ConditionalAlbumListService;
     albumItemsListService: AlbumItemsListService;
     personItemsListService: PersonItemsListService;
+    labelItemsListService: LabelItemsListService;
     itemDownloadService: AlbumItemDownloadService;
     browseFolderService: BrowseFolderService;
     copyMoveFSService: CopyMoveFSService;
@@ -45,6 +52,7 @@ const generateServices = (apiInfoService: ApiInfoService): AllServices => ({
     conditionalAlbumListService: new ConditionalAlbumListService(apiInfoService),
     albumItemsListService: new AlbumItemsListService(apiInfoService),
     personItemsListService: new PersonItemsListService(apiInfoService),
+    labelItemsListService: new LabelItemsListService(apiInfoService),
     itemDownloadService: new AlbumItemDownloadService(apiInfoService),
     browseFolderService: new BrowseFolderService(apiInfoService),
     copyMoveFSService: new CopyMoveFSService(apiInfoService),
@@ -98,11 +106,13 @@ const handleAlbum = async (username: string, id: number, shared_folder: string, 
     logger(`[${username}]: ${countOfCopiedPhoto} was added from album: ${id} / ${items.length}`);
 }
 
-const handlePerson = async (username: string, personId: number, shared_folder: string, services: AllServices) => {
-    const items = await services.personItemsListService.getItems(personId);
+const handleItems = async (username: string, items: Array<AlbumItem>, shared_folder: string, dataIndex: string, source: string, services: AllServices) => {
     const dest = destPath(shared_folder, username);
-    const dataIndex = savedPersonDataIndex(personId, shared_folder);
     const itemsSaved: string[] = DATA[dataIndex] || [];
+    // ids already copied into this destination folder during this run (possibly
+    // by another source, e.g. a person flow that targets the same folder) — used
+    // so a photo tagged with both a label and a person isn't copied twice
+    const destSet = (COPIED_BY_DEST[dest] ??= new Set<string>());
     let countOfCopiedPhoto = 0;
 
     const createFolderResult = await services.fsCreateFolderService.send(destPath(shared_folder, ''), username);
@@ -113,7 +123,7 @@ const handlePerson = async (username: string, personId: number, shared_folder: s
 
     // dedup by item id; copy one-by-one + rename to `<id>_filename` so that
     // same-named photos from different folders don't collide in the flat dest
-    const filtratedItems = items.filter((item) => !itemsSaved.includes(String(item.id)));
+    const filtratedItems = items.filter((item) => !itemsSaved.includes(String(item.id)) && !destSet.has(String(item.id)));
 
     // list the dest only when there is new work — it is just a reconciliation
     // safety net for runs that copied but didn't persist data.local.json
@@ -128,6 +138,7 @@ const handlePerson = async (username: string, personId: number, shared_folder: s
         // persist data.local.json — just record the id, don't copy again
         if (existingNames.has(targetName)) {
             DATA = updateSavedData(DATA, dataIndex, [String(item.id)]);
+            destSet.add(String(item.id));
             DataChanged = true;
             continue;
         }
@@ -140,6 +151,7 @@ const handlePerson = async (username: string, personId: number, shared_folder: s
         await services.renameFSService.send(`${dest}/${item.filename}`, targetName);
 
         DATA = updateSavedData(DATA, dataIndex, [String(item.id)]);
+        destSet.add(String(item.id));
         DataChanged = true;
         countOfCopiedPhoto += 1;
         PhotoAdded += 1;
@@ -149,10 +161,20 @@ const handlePerson = async (username: string, personId: number, shared_folder: s
         }
     }
 
-    logger(`[${username}]: ${countOfCopiedPhoto} was added from person: ${personId} / ${items.length}`);
+    logger(`[${username}]: ${countOfCopiedPhoto} was added from ${source} / ${items.length}`);
 }
 
-const handleAccount = async (login: string, passwd: string, albums: Array<AlbumCopySettings>, persons: Array<PersonCopySettings>, apiInfoService: ApiInfoService) => {
+const handlePerson = async (username: string, personId: number, shared_folder: string, services: AllServices) => {
+    const items = await services.personItemsListService.getItems(personId);
+    await handleItems(username, items, shared_folder, savedPersonDataIndex(personId, shared_folder), `person: ${personId}`, services);
+}
+
+const handleLabel = async (username: string, generalTagId: number, shared_folder: string, services: AllServices) => {
+    const items = await services.labelItemsListService.getItems(generalTagId);
+    await handleItems(username, items, shared_folder, savedLabelDataIndex(generalTagId, shared_folder), `label: ${generalTagId}`, services);
+}
+
+const handleAccount = async (login: string, passwd: string, albums: Array<AlbumCopySettings>, persons: Array<PersonCopySettings>, labels: Array<LabelCopySettings>, apiInfoService: ApiInfoService) => {
     const services = generateServices(apiInfoService);
 
     await services.authService.send({account: login, passwd});
@@ -172,6 +194,10 @@ const handleAccount = async (login: string, passwd: string, albums: Array<AlbumC
         await handlePerson(login, person.person_id, person.shared_folder, services);
     }
 
+    for (const label of (labels || [])) {
+        await handleLabel(login, label.general_tag_id, label.shared_folder, services);
+    }
+
     await services.logoutService.send();
 }
 
@@ -181,7 +207,7 @@ async function main(settings: Settings) {
     await apiInfoService.init();
 
     for (const account of settings.accounts) {
-        await handleAccount(account.login, account.password, account.albums || [], account.persons || [], apiInfoService);
+        await handleAccount(account.login, account.password, account.albums || [], account.persons || [], account.labels || [], apiInfoService);
         await customDelay(1000);
     }
 }
@@ -203,6 +229,7 @@ readFile(settingPath, async (err, data) => {
         try {
             PhotoAdded = 0;
             DataChanged = false;
+            COPIED_BY_DEST = {};
             await main(settings);
         } catch (e) {
             logger('ERROR::', e);

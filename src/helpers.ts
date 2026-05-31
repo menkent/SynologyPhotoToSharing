@@ -30,6 +30,10 @@ export function savedPersonDataIndex(person_id: number, shared_folder: string): 
     return `person_${person_id}_${shared_folder}`;
 }
 
+export function savedLabelDataIndex(general_tag_id: number, shared_folder: string): string {
+    return `label_${general_tag_id}_${shared_folder}`;
+}
+
 export function updateSavedData(data: Record<string, string[]>, index: string, files: string[]): Record<string, string[]> {
     data[index] = data[index]
         ? [...data[index], ...files]

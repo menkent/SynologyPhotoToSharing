@@ -8,6 +8,11 @@ export interface PersonCopySettings {
     shared_folder: string;
 }
 
+export interface LabelCopySettings {
+    general_tag_id: number;
+    shared_folder: string;
+}
+
 export interface Settings {
     host: string;
     accounts: Array<{
@@ -15,5 +20,6 @@ export interface Settings {
         password: string;
         albums?: Array<AlbumCopySettings>,
         persons?: Array<PersonCopySettings>,
+        labels?: Array<LabelCopySettings>,
     }>;
 }

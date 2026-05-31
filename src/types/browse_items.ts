@@ -20,16 +20,20 @@ export interface AlbumsBrowseItemsResponse {
     list: Array<AlbumItem>;
 }
 
-export interface AlbumsBrowseItemsRequest {
+export interface BrowseItemsRequest {
     offset: number;
     limit: number;
     type?: FileType;
+}
+
+export interface AlbumsBrowseItemsRequest extends BrowseItemsRequest {
     passphrase: string;
 }
 
-export interface PersonItemsRequest {
-    offset: number;
-    limit: number;
-    type?: FileType;
+export interface PersonItemsRequest extends BrowseItemsRequest {
     person_id: number;
+}
+
+export interface LabelItemsRequest extends BrowseItemsRequest {
+    general_tag_id: number;
 }
